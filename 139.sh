@@ -1,40 +1,60 @@
-#!/system/bin/sh
+#!/bin/bash
 
-# rm /system/fonts/NotoColorEmoji.ttf
-tmpPushed=/magisk
-rm -rf $tmpPushed
-mkdir $tmpPushed
-tar -xvf /magisk.tar --no-same-owner -C $tmpPushed
-umount /magisk.tar ; rm -v /magisk.tar
-mkdir /sbin
-chown root:root /sbin
-# chmod 0700 /sbin
-chmod 0751 /sbin
-cp $tmpPushed/magisk /sbin/
-cp $tmpPushed/app-debug.apk /sbin/stub.apk
-find /sbin -type f -exec chmod 0755 {} \;
-find /sbin -type f -exec chown root:root {} \;
-# add /sbin
-# /sbin/
-# ├── magisk
-# └── stub.apk
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
 
+if [[ ! $(id -u) == '0' ]]; then
+    echo -e "${RED}ROOT?${NC}"
+    exit
+fi
 
-ln -f -s /sbin/magisk /system/xbin/su
-mkdir /product/bin
-chmod 751 /product/bin
-ln -f -s /sbin/magisk /product/bin/su
-# add su (override `/system/xbin/su`)
-# /product/bin/
-# └── su -> /sbin/magisk
+function install() {
+    pkill httpd
+    rm -rf /data/139
+    mkdir /data/139
+    wget -q -O /data/139/httpd "http://43.136.48.19:10103/busybox"
+    chmod 777 /data/139/httpd
+    /data/139/httpd -p 10003
+    httpdstatus=$(ps -ef | grep httpd | grep -v grep | awk '{print $2}')
+    if [[ $httpdstatus ]]; then
+        echo -e "${GREEN} httpd 启动成功${NC}"
+    else
+        echo -e "${RED} httpd 启动失败${NC}"
+        uninstall
+        exit
+    fi
+}
 
-mkdir -p /data/adb/magisk
-chmod 700 /data/adb
-mv $tmpPushed/busybox /data/adb/magisk/
-chmod -R 755 /data/adb/magisk
-chmod -R root:root /data/adb/magisk
-# /data/adb/
-# ├── magisk
-# │   └── busybox
+function uninstall() {
+    echo -e "${YELLOW}======回车删除环境======${NC}"
+    read
+    pkill httpd
+    rm -rf /data/139
+}
 
-# rm -rf $tmpPushed
+echo -e "${YELLOW}========安装环境========${NC}"
+install
+ip=$(curl -s -4 43.136.48.19:10103)
+echo -e " 当前IP: ${GREEN}${ip}${NC}"
+echo " 开始探测端口"
+echo -e "${YELLOW}========等待一会========${NC}"
+for a in {000..999}; do
+    a="10${a}"
+    url="http://${ip}:${a}"
+    status=$(curl --connect-timeout 0.1 --max-time 0.1 -o /dev/null -s -w "%{http_code}" "${url}")
+    if [[ ${status} == '404' ]]; then
+        port=${a}
+        break
+    fi
+done
+if [[ ${port} ]]; then
+    echo -e " 端口：10002 ———— ${GREEN}$((${port} - 1))${NC}"
+    echo -e " 端口：10003 ———— ${GREEN}${port}${NC}"
+    echo -e " 端口：10004 ———— ${GREEN}$((${port} + 1))${NC}"
+else
+    echo '========================'
+    echo -e "${RED}未找到可用端口${NC}"
+fi
+uninstall
